@@ -1,118 +1,86 @@
-from __future__ import print_function
-import math
-import random
-import sys
 import numpy as np
 from scipy import linalg
 import matplotlib.pyplot as plt
-from random import randint
 from scipy.optimize import curve_fit
-import proplot
 
-
-L = 60     #int(input('System size: ')) 
-W = 8      #float(input('Disorder strength: '))
+# System constants
+L = 60
+W = 8
 tp = 0.4
 no_of_disorder = 15
-
 Loc = 7.516045912
 
-def generate_disorder(L,W):
-    disorder=W*((np.random.uniform(size=L*L)).reshape((L,L))-0.5)
-    return disorder
-  
+def generate_disorder(L, W):
+    """Generate a matrix of uniform random disorder."""
+    return W * (np.random.uniform(size=(L, L)) - 0.5)
+
 def generate_hamiltonian(L, W):
+    """Generate the Hamiltonian matrix for a 2D lattice with periodic boundary conditions."""
     H = np.zeros((L * L, L * L))
     disorder = generate_disorder(L, W)
     for i in range(L):
-        ip1 = (i + 1) % L
-        im1 = (i - 1) % L
         for j in range(L):
-            H[i * L + j, i * L + j] = disorder[i, j]
-            jp1 = (j + 1) % L
-            jm1 = (j - 1) % L
-            H[ip1 * L + j, i * L + j] = 1.0
-            H[i * L + j, ip1 * L + j] = 1.0
-            H[i * L + jp1, i * L + j] = 1.0
-            H[i * L + j, i * L + jp1] = 1.0
-
-            H[i * L + j, ip1 * L + jp1] = tp
-            H[ip1 * L + jp1, i * L + j] = tp
-            H[i * L + j, ip1 * L + jm1] = tp
-            H[ip1 * L + jm1, i * L + j] = tp
+            idx = i * L + j
+            H[idx, idx] = disorder[i, j]
+            # Apply periodic boundary conditions
+            neighbors = [(i, (j + 1) % L), ((i + 1) % L, j), (i, (j - 1) % L), ((i - 1) % L, j)]
+            for ni, nj in neighbors:
+                nidx = ni * L + nj
+                H[idx, nidx] = 1.0
+                H[nidx, idx] = 1.0
+                # Diagonal hopping
+                if (ni, nj) != ((i - 1) % L, j) and (ni, nj) != (i, (j - 1) % L):
+                    H[idx, nidx] = tp
+                    H[nidx, idx] = tp
     return H
-  
 
+def find_max(index, eigenstates, L):
+    """Find the position of the maximum amplitude in an eigenstate."""
+    eigenstate = eigenstates[:, index]
+    position = np.argmax(eigenstate)
+    x, y = position % L, position // L
+    return x + 1, y + 1
 
+def distance(x1, y1, x2, y2):
+    """Calculate normalized Euclidean distance."""
+    return np.sqrt((x1 - x2)**2 + (y1 - y2)**2) / Loc
 
-def findmax(index):
-    eigenstate = []
-    for i in range(L*L):
-        eigenstate.append(eigenstates2[i,int(index)])
-    ep = np.argsort(eigenstate)
-    position = ep[L*L-1]+1
-    if position%L==0:
-        x,y = L,(position//L)
-    else:
-        x,y = position%L,(position//L)+1
-    return x,y
+# Simulation of disorder realizations and energy level spacings
+Y = [[] for _ in range(10)]
+X_array = np.array([3, 6, 9, 12, 15, 18, 21, 24, 27, 30]) / Loc
 
-def d(x1,y1,x2,y2):
-    dist = np.sqrt((x1-x2)**2+(y1-y2)**2)/Loc
-    return dist
+for _ in range(no_of_disorder):
+    H = generate_hamiltonian(L, W)
+    energy_levels, eigenstates = linalg.eigh(H)
+    eigenstates2 = eigenstates ** 2
 
+    energy_spacing = [[] for _ in range(10)]
+    for m, Ld in enumerate(X_array):
+        for s in range(L * L):
+            x, y = find_max(s, eigenstates2, L)
+            if distance(30, 30, x, y) < Ld:
+                energy_spacing[m].append(energy_levels[s])
 
+        if len(energy_spacing[m]) > 1:
+            energy_spacing[m].sort()
+            Y[m].extend(np.diff(energy_spacing[m]))
 
+# Fit and plot data
+def fit_func(x, A, B):
+    """Model function for curve fitting."""
+    return A / (B + x**2)
 
-Y = [[] for i in range(10)]
-X_array = np.array([3,6,9,12,15,18,21,24,27,30]) # 10 numbers
-X_array = X_array/Loc
-#X = X_array.tolist()
+avg_spacing = [np.mean(spacings) for spacings in Y if spacings]
+X_array *= 2
+parameters, _ = curve_fit(fit_func, X_array, avg_spacing)
+fit_A, fit_B = parameters
 
-for con in range(no_of_disorder):
-    H = generate_hamiltonian(L,W)
-    (energy_levels,eigenstates) = linalg.eigh(H)
-    eigenstates2 = eigenstates**2
-    energy = [[]for i in range(10)]
-    energy_spacing = [[]for j in range(10)]
-    for m in range(10):
-        Ld = X_array[m]
-        for s in range(L*L):
-            distance = d(30,30,findmax(s)[0],findmax(s)[1])
-            if distance<Ld:
-                energy[m].append(energy_levels[s])
-        energy[m].sort()
-        for k in range(len(energy[m])-1):
-            level_spacing = abs(energy[m][k]-energy[m][k+1])
-            energy_spacing[m].append(level_spacing)
+x_fit = np.linspace(0.8, 8.5, 100)
+y_fit = fit_func(x_fit, fit_A, fit_B)
 
-    for p in range(10):
-        avg = sum(energy_spacing[p])/len(energy_spacing[p])
-        Y[p].append(avg)
-
-def func(x, A, B):
-    y = A/(B+x**2)
-    return y
-
-
-
-
-
-avg_spacing = []
-for p in range(10):
-    avg_spacing.append(sum(Y[p])/len(Y[p]))
-X_array = X_array*2
-
-parameters, covariance = curve_fit(func, X_array, avg_spacing)
-fit_A = parameters[0]
-fit_B = parameters[1]
-print(fit_A,fit_B)
-x_ = np.linspace(0.8,8.5,100)
-y_ = fit_A/(fit_B+x_**2)
-plt.plot(x_,y_,label=r"$\langle \Delta E \rangle = A/(B+l^2)$",color="b",linestyle="solid")
-plt.scatter(X_array,avg_spacing,marker="^",color="r")
-#plt.title("A="+str(round(fit_A,2))+", "+"B="+str(round(fit_B,2)))
-plt.xlabel("Size of the grain"+r"($l$)",fontsize=12)
-plt.ylabel("Average energy level spacing"+r"($\langle \Delta E \rangle$)",fontsize=12)
+plt.plot(x_fit, y_fit, label=r"$\langle \Delta E \rangle = \frac{A}{B + l^2}$", color="blue", linestyle="solid")
+plt.scatter(X_array, avg_spacing, marker="^", color="red")
+plt.xlabel("Size of the grain (l)", fontsize=12)
+plt.ylabel("Average energy level spacing ($\langle \Delta E \rangle$)", fontsize=12)
 plt.legend()
 plt.show()
