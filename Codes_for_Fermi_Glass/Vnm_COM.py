@@ -1,107 +1,92 @@
-from __future__ import print_function
-import math
-import random
-import sys
 import numpy as np
-from scipy import linalg
 import matplotlib.pyplot as plt
+from scipy.linalg import eigh
 from random import randint
 
-# Within an energy range, randomly find N pairs to calculate Vnm vs distance, 
-# where distance beyond half of the period is not considered.
-# Use "centre of mass" definition to find the 
-
-L = 60 #int(input('System size: ')) 
-W = 10 #float(input('Disorder strength: '))
-
+# Constants
+L = 60
+W = 10
 tp = 0.4
-
-
-def generate_disorder(L,W):
-  disorder=W*((np.random.uniform(size=L*L)).reshape((L,L))-0.5)
-  return disorder
-  
-def generate_hamiltonian(L,W):
-  H=np.zeros((L*L,L*L))
-  disorder=generate_disorder(L,W)
-  for i in range(L):
-    ip1=(i+1)%L
-    im1=(i-1)%L
-    for j in range(L):
-      H[i*L+j,i*L+j]=disorder[i,j]
-      jp1=(j+1)%L
-      jm1=(j-1)%L
-      H[ip1*L+j  ,i  *L+j  ]=1.0
-      H[i*  L+j  ,ip1*L+j  ]=1.0
-      H[i  *L+jp1,i  *L+j  ]=1.0
-      H[i*  L+j  ,i  *L+jp1]=1.0
-      
-      H[i*L+j,ip1*L+jp1] = tp
-      H[ip1*L+jp1,i*L+j] = tp
-      H[i*L+j,ip1*L+jm1] = tp
-      H[ip1*L+jm1,i*L+j] = tp
-      
-  return H
-  
-def COM(index):
-s,r = 0,0
-    for i in range(L*L):
-        ip1 = i + 1
-        if ip1 % L == 0:
-            x,y = L, (i//L)
-        else:
-            x,y = i%L,(i//L)+1
-        s = s + x*eigenstates2[i,index]
-        r = r + y*eigenstates2[i,index]
-    return s,r
-
-
-def d(x1,y1,x2,y2):
-    dist = np.sqrt((x1-x2)**2+(y1-y2)**2)
-    return dist
-def V(p,q):
-    V = np.dot(eigenstates2[:,p],eigenstates2[:,q])
-    return V
-    
-
-dlist = []
-Vlist = []
-delta = 100
-E1 = 3400-delta
-E2 = 3400+delta
-
+DELTA = 100
+E_CENTER = 3400
 N = 30
-for con in range(10):
-    H=generate_hamiltonian(L,W)
-    (energy_levels,eigenstates) = linalg.eigh(H)
-    eigenstates2 = eigenstates**2
-    for j in range(N):
-        k = randint(E1,E2)
-        m = randint(E1,E2)
-        if k != m:
-            distance = d(COM(k)[0],COM(k)[1],COM(m)[0],COM(m)[1])/6
-            if distance < 5:
-                Vnm = V(k,m)
-                dlist.append(distance)
-                Vlist.append(Vnm)
-    
+NUM_CONFIGURATIONS = 10
 
-d_array = np.array(dlist)
-V_array = np.array(Vlist)
-ln_V_array = np.log(V_array)
+def generate_disorder(L, W):
+    """ Generate a disorder matrix for the Hamiltonian. """
+    return W * (np.random.uniform(size=(L, L)) - 0.5)
 
-A,B = np.polyfit(d_array, ln_V_array, 1, w=np.sqrt(V_array))
+def generate_hamiltonian(L, W):
+    """ Generate the Hamiltonian matrix for the system. """
+    H = np.zeros((L*L, L*L))
+    disorder = generate_disorder(L, W)
+    for i in range(L):
+        for j in range(L):
+            index = i * L + j
+            right = i * L + (j + 1) % L
+            down = ((i + 1) % L) * L + j
+            diag_right_down = ((i + 1) % L) * L + (j + 1) % L
+            diag_right_up = ((i + 1) % L) * L + (j - 1) % L
 
+            H[index, index] = disorder[i, j]
+            H[index, right] = H[right, index] = 1.0
+            H[index, down] = H[down, index] = 1.0
+            H[index, diag_right_down] = H[diag_right_down, index] = tp
+            H[index, diag_right_up] = H[diag_right_up, index] = tp
 
+    return H
 
-        
-    
-x = np.linspace(0,5,100)
-y = np.exp(B)* np.exp(A*x)
-plt.plot(x,y,label='U_kp = exp('+str(round(B,2))+')'+'exp('+str(round(A,2))+'d'+')')          
-plt.scatter(dlist, Vlist,s=3,color='r')
-plt.xlabel("Distance between two states(In units of localization length)")
+def center_of_mass(state, L):
+    """ Calculate the center of mass for a given state. """
+    grid = np.arange(L*L)
+    x = grid % L
+    y = grid // L
+    cm_x = np.sum(x * state) / np.sum(state)
+    cm_y = np.sum(y * state) / np.sum(state)
+    return cm_x, cm_y
+
+def distance(x1, y1, x2, y2):
+    """ Compute Euclidean distance between two points. """
+    return np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+
+def overlap(state1, state2):
+    """ Compute the overlap integral between two states. """
+    return np.dot(state1, state2)
+
+# Main data collection
+d_list = []
+v_list = []
+
+for _ in range(NUM_CONFIGURATIONS):
+    H = generate_hamiltonian(L, W)
+    energies, eigenstates = eigh(H)
+    probabilities = eigenstates**2
+
+    selected_indices = np.random.choice(np.where((energies > E_CENTER - DELTA) & (energies < E_CENTER + DELTA))[0], 2*N, replace=False)
+
+    for k in selected_indices:
+        for m in selected_indices:
+            if k != m:
+                xk, yk = center_of_mass(probabilities[:, k], L)
+                xm, ym = center_of_mass(probabilities[:, m], L)
+                dist = distance(xk, yk, xm, ym) / 6
+                if dist < 5:
+                    vnm = overlap(probabilities[:, k], probabilities[:, m])
+                    d_list.append(dist)
+                    v_list.append(vnm)
+
+# Regression and plotting
+d_array = np.array(d_list)
+v_array = np.array(v_list)
+ln_v_array = np.log(v_array)
+A, B = np.polyfit(d_array, ln_v_array, 1, w=np.sqrt(v_array))
+
+x = np.linspace(0, 5, 100)
+y = np.exp(B) * np.exp(A * x)
+plt.plot(x, y, label=f'U_kp = exp({B:.2f})exp({A:.2f}d)')
+plt.scatter(d_list, v_list, s=3, color='r')
+plt.xlabel("Distance between two states (In units of localization length)")
 plt.ylabel("U_kp")
-plt.title('No. of total pairs = '+str(len(dlist))+', '+str(L)+'x'+str(L)+", W="+str(W)+', '+'no. of disorder confuguration = 10')
+plt.title(f'Total pairs = {len(d_list)}, {L}x{L}, W={W}, Configurations = {NUM_CONFIGURATIONS}')
 plt.legend()
 plt.show()
