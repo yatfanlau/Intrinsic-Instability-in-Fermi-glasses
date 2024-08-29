@@ -1,117 +1,69 @@
-from __future__ import print_function
-import math
-import random
-import sys
 import numpy as np
 from scipy import linalg
 import matplotlib.pyplot as plt
-from random import randint
-from scipy.optimize import curve_fit
 
-# This code computes the average level spacing(<ΔE>) within a region of size L and see how <ΔE> changes with L
-
-L = 60     #int(input('System size: ')) 
-W = 8      #float(input('Disorder strength: '))
+# Constants
+L = 60
+W = 8
 tp = 0.4
-
 Loc = 7.516045912
 
-def generate_disorder(L,W):
-    disorder=W*((np.random.uniform(size=L*L)).reshape((L,L))-0.5)
-    return disorder
-  
+def generate_disorder(L, W):
+    """Generate a disorder matrix for the Hamiltonian."""
+    return W * (np.random.rand(L, L) - 0.5)
+
 def generate_hamiltonian(L, W):
+    """Generate the Hamiltonian matrix for a 2D lattice with periodic boundary conditions and next-nearest neighbor hopping."""
     H = np.zeros((L * L, L * L))
     disorder = generate_disorder(L, W)
     for i in range(L):
-        ip1 = (i + 1) % L
-        im1 = (i - 1) % L
         for j in range(L):
-            H[i * L + j, i * L + j] = disorder[i, j]
-            jp1 = (j + 1) % L
-            jm1 = (j - 1) % L
-            H[ip1 * L + j, i * L + j] = 1.0
-            H[i * L + j, ip1 * L + j] = 1.0
-            H[i * L + jp1, i * L + j] = 1.0
-            H[i * L + j, i * L + jp1] = 1.0
-
-            H[i * L + j, ip1 * L + jp1] = tp
-            H[ip1 * L + jp1, i * L + j] = tp
-            H[i * L + j, ip1 * L + jm1] = tp
-            H[ip1 * L + jm1, i * L + j] = tp
+            index = i * L + j
+            H[index, index] = disorder[i, j]
+            for di, dj in [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1)]:
+                ni, nj = (i + di) % L, (j + dj) % L
+                neighbor_index = ni * L + nj
+                H[index, neighbor_index] = tp if abs(di + dj) % 2 == 0 else 1.0
     return H
-  
 
+def find_max(eigenstate, L):
+    """Find the coordinates of the maximum value in a 2D eigenstate."""
+    max_index = np.argmax(eigenstate)
+    x, y = max_index % L, max_index // L
+    return x + 1, y + 1
 
+def distance(x1, y1, x2, y2):
+    """Compute normalized Euclidean distance."""
+    return np.sqrt((x1 - x2)**2 + (y1 - y2)**2) / Loc
 
-def findmax(index):
-    eigenstate = []
-    for i in range(L*L):
-        eigenstate.append(eigenstates2[i,int(index)])
-    ep = np.argsort(eigenstate)
-    position = ep[L*L-1]+1
-    if position%L==0:
-        x,y = L,(position//L)
-    else:
-        x,y = position%L,(position//L)+1
-    return x,y
+def calculate_energy_spacing(L, energy_levels, eigenstates, Ld):
+    """Calculate energy spacings for states within a radius Ld."""
+    energy = []
+    for s in range(L * L):
+        x, y = find_max(eigenstates[:, s], L)
+        if distance(30, 30, x, y) < Ld:
+            energy.append(energy_levels[s])
+    energy.sort()
+    return np.diff(energy)
 
-def d(x1,y1,x2,y2):
-    dist = np.sqrt((x1-x2)**2+(y1-y2)**2)/Loc
-    return dist
+# Initialize parameters
+Y = [[] for _ in range(5)]
+X = np.array([3, 6, 9, 12, 15, 18, 21, 24, 27, 30]) / Loc
 
-def Cal_Y(con):
-    energy = [[]for i in range(10)]
-    energy_spacing = [[]for j in range(10)]
-    for m in range(10):
-        Ld = X[m]
-        for s in range(L*L):
-            distance = d(30,30,findmax(s)[0],findmax(s)[1])
-            if distance<Ld:
-                energy[m].append(energy_levels[s])
-        energy[m].sort()
-        for k in range(len(energy[m])-1):
-            level_spacing = abs(energy[m][k]-energy[m][k+1])
-            energy_spacing[m].append(level_spacing)
-
-    for p in range(10):
-        avg = sum(energy_spacing[p])/len(energy_spacing[p])
-        Y[con].append(avg)
-    return Y[con]
-        
-# def func(x, A, B):
-    # y = A/(B+x**2)
-    # return y
-
-
-# def fitting(con):
-    # parameters, covariance = curve_fit(func, X, Y[con])
-    # fit_A = parameters[0]
-    # fit_B = parameters[1]
-    # x_ = np.linspace(0.5,5,100)
-    # y_ = fit_A/(fit_B+x_**2)
-    # return x_,y_
-
-
-Y = [[] for con in range(5)]
-X_array = np.array([3,6,9,12,15,18,21,24,27,30]) # 10 numbers
-X_array = X_array/Loc
-X = X_array.tolist()
-
-plot = ["^","s","o","*","D"]
-
+# Main simulation loop
 for conf in range(5):
-    H = generate_hamiltonian(L,W)
-    (energy_levels,eigenstates) = linalg.eigh(H)
-    eigenstates2 = eigenstates**2
-    Y[conf] = Cal_Y(conf)
-    #x_,y_ = fitting(conf)
-    #plt.plot(x_,y_,label='y=A/(B+x^2)')
-    plt.scatter(X, Y[conf],s=4,plot[conf])
+    H = generate_hamiltonian(L, W)
+    energy_levels, eigenstates = linalg.eigh(H)
+    for Ld in X:
+        energy_spacing = calculate_energy_spacing(L, energy_levels, eigenstates, Ld)
+        Y[conf].append(np.mean(energy_spacing) if energy_spacing.size > 0 else 0)
 
-plt.xlabel("Radius of the chosen region")
+# Plotting
+markers = ["^", "s", "o", "*", "D"]
+for conf in range(5):
+    plt.scatter(X, Y[conf], s=30, marker=markers[conf], label=f'Config {conf + 1}')
+
+plt.xlabel("Radius of the chosen region (normalized)")
 plt.ylabel("Average energy level spacing")
-#plt.title(str(L)+'x'+str(L)+', '+'W='+str(W))
 plt.legend()
 plt.show()
-
