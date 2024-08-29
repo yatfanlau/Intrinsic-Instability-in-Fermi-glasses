@@ -1,70 +1,61 @@
-import math
-import random
 import numpy as np
-from scipy import linalg
-import matplotlib.pyplot as plt
+from scipy.linalg import eigh
 from random import randint
 
- 
+# Constants for the system size and parameters
+L = 60       # System size
+W = 14       # Disorder strength
+tp = 0.4     # Next-nearest neighbor hopping term
 
-L = 60 #int(input('System size: ')) 
-W = 14 #float(input('Disorder strength: '))
+def generate_disorder(L, W):
+    """ Generate an LxL matrix of uniform random disorder. """
+    return W * (np.random.uniform(size=(L * L)).reshape((L, L)) - 0.5)
 
-tp = 0.4
+def generate_hamiltonian(L, W):
+    """ Generate the Hamiltonian matrix for a 2D lattice with periodic boundary conditions. """
+    H = np.zeros((L * L, L * L))
+    disorder = generate_disorder(L, W)
+    for i in range(L):
+        ip1 = (i + 1) % L
+        im1 = (i - 1) % L
+        for j in range(L):
+            idx = i * L + j
+            H[idx, idx] = disorder[i, j]
+            jp1 = (j + 1) % L
+            jm1 = (j - 1) % L
+            # Nearest neighbor hopping
+            H[idx, ip1 * L + j] = H[ip1 * L + j, idx] = 1.0
+            H[idx, i * L + jp1] = H[i * L + jp1, idx] = 1.0
+            # Next-nearest neighbor hopping
+            H[idx, ip1 * L + jp1] = H[ip1 * L + jp1, idx] = tp
+            H[idx, ip1 * L + jm1] = H[ip1 * L + jm1, idx] = tp
+    return H
 
+def center_of_mass(index):
+    """ Calculate the center of mass of an eigenstate. """
+    s, r = 0, 0
+    for i in range(L * L):
+        x, y = i % L, i // L
+        s += x * eigenstates2[i, index]
+        r += y * eigenstates2[i, index]
+    return s, r
 
-def generate_disorder(L,W):
-  disorder=W*((np.random.uniform(size=L*L)).reshape((L,L))-0.5)
-  return disorder
-  
-def generate_hamiltonian(L,W):
-  H=np.zeros((L*L,L*L))
-  disorder=generate_disorder(L,W)
-  for i in range(L):
-    ip1=(i+1)%L
-    im1=(i-1)%L
-    for j in range(L):
-      H[i*L+j,i*L+j]=disorder[i,j]
-      jp1=(j+1)%L
-      jm1=(j-1)%L
-      H[ip1*L+j  ,i  *L+j  ]=1.0
-      H[i*  L+j  ,ip1*L+j  ]=1.0
-      H[i  *L+jp1,i  *L+j  ]=1.0
-      H[i*  L+j  ,i  *L+jp1]=1.0
-      
-      H[i*L+j,ip1*L+jp1] = tp
-      H[ip1*L+jp1,i*L+j] = tp
-      H[i*L+j,ip1*L+jm1] = tp
-      H[ip1*L+jm1,i*L+j] = tp
-      
-  return H
+def find_max(index):
+    """ Find the position of the maximum amplitude in an eigenstate. """
+    eigenstate = eigenstates2[:, int(index)]
+    position = np.argmax(eigenstate)
+    x, y = position % L, position // L
+    return x, y
 
-def COM(index):
-    s,r = 0,0
-    for i in range(L*L):
-        ip1 = i + 1
-        if ip1 % L == 0:
-            x,y = L, (i//L)
-        else:
-            x,y = i%L,(i//L)+1
-        s = s + x*eigenstates2[i,index]
-        r = r + y*eigenstates2[i,index]
-    return s,r
-
-def findmax(index):
-    eigenstate = []
-    for i in range(L*L):
-        eigenstate.append(eigenstates2[i,int(index)])
-    ep = np.argsort(eigenstate)
-    position = ep[L*L-1]+1
-    x,y = position%L,(position//L)+1
-    return x,y
-
+# Generate the Hamiltonian and solve for eigenstates
 H = generate_hamiltonian(L, W)
-(energy_levels, eigenstates) = linalg.eigh(H)
+energy_levels, eigenstates = eigh(H)
 eigenstates2 = eigenstates ** 2
 
+# Example use of center_of_mass and find_max for random eigenstates
 for i in range(20):
-    a = randint(3000,3400)
-    print(COM(a))
-    print(findmax(a))
+    a = randint(3000, 3400)
+    com = center_of_mass(a)
+    max_pos = find_max(a)
+    print(f"Center of Mass for state {a}: {com}")
+    print(f"Max position for state {a}: {max_pos}")
